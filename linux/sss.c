@@ -986,7 +986,7 @@ add_interface (char *ptr)
     }
     if ((inf = (struct interface *)malloc(sizeof(struct interface))) == NULL) {
         fprintf(stderr, "failed to malloc space for new interface %s!\n", ptr);
-        return;
+        goto fatal_error;
     }
     strcpy(inf->ifname, ptr);
 
@@ -995,16 +995,14 @@ add_interface (char *ptr)
      */
     if ((inf->fd = socket(PF_PACKET, SOCK_RAW, 0)) < 0) {
         fprintf(stderr, "unable to get raw socket to determine interface flags!\n");
-        free(inf);
-        return;
+        goto fatal_error;
     }
 
     memset(&ifr, 0, sizeof(ifr));
     strncpy(ifr.ifr_name, inf->ifname, IFNAMSIZ);
     if (ioctl(inf->fd, SIOCGIFINDEX, &ifr) < 0) {
         fprintf(stderr, "unable to get if index on %s\n", inf->ifname);
-        free(inf);
-        return;
+        goto fatal_error;
     }
     ifidx = ifr.ifr_ifindex;
 
@@ -1027,48 +1025,41 @@ add_interface (char *ptr)
          */
         if ((inf->nl_cb = nl_cb_alloc(NL_CB_DEFAULT)) == NULL) {
             fprintf(stderr, "unable to alloc an nl cb on %s\n", inf->ifname);
-            free(inf);
-            return;
+            goto fatal_error;
         }
 
         if ((inf->nl_sock = create_nl_socket(inf->nl_cb)) == NULL) {
             fprintf(stderr, "failed to create nl_sock on %s\n", inf->ifname);
-            free(inf);
-            return;
+            goto fatal_error;
         }
         if ((inf->nl_mlme = create_nl_socket(inf->nl_cb)) == NULL) {
             fprintf(stderr, "failed to create nl_sock on %s\n", inf->ifname);
-            free(inf);
-            return;
+            goto fatal_error;
         }
 
         if ((inf->nl80211_id = genl_ctrl_resolve(inf->nl_sock, "nl80211")) < 0) {
             fprintf(stderr, "unable to get nl80211 id!\n");
             nl_socket_free(inf->nl_sock);
-            free(inf);
-            return;
+            goto fatal_error;
         }
 
         if ((mid = nl_get_multicast_id(inf, "nl80211", "mlme")) < 0) {
             fprintf(stderr, "unable to get multicast id for mlme!\n");
             nl_socket_free(inf->nl_sock);
-            free(inf);
-            return;
+            goto fatal_error;
         }
         nl_socket_add_membership(inf->nl_mlme, mid);
 
         if ((msg = get_nl_msg(inf, 0, NL80211_CMD_GET_INTERFACE)) == NULL) {
             fprintf(stderr, "unable to get nl_msg to get interface!\n");
             nl_socket_free(inf->nl_sock);
-            free(inf);
-            return;
+            goto fatal_error;
         }
         printf("\ngetting the interface!\n");
         if (send_nl_msg(msg, inf, get_phy_info, inf) < 0) {
             fprintf(stderr, "unable to send nl_msg to get interface!\n");
             nl_socket_free(inf->nl_sock);
-            free(inf);
-            return;
+            goto fatal_error;
         }
         printf("%s is interface %ld from ioctl\n", ptr, inf->ifindex);
         ifidx = if_nametoindex(ptr);
@@ -1155,6 +1146,10 @@ add_interface (char *ptr)
     
     TAILQ_INSERT_TAIL(&interfaces, inf, entry);
     return;
+
+fatal_error:
+    free(inf);
+    exit(1);
 }
 
 static unsigned long
